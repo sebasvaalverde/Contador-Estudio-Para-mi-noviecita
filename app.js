@@ -6,7 +6,6 @@ import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/1
 
 'use strict';
 
-// 🔥 TU CONFIGURACIÓN DE FIREBASE — no la compartas con nadie
 const firebaseConfig = {
     apiKey: "AIzaSyC4c0aVEANhcKkOl4GAAlI2lqJfvkHiEtk",
     authDomain: "contador-de-tiempo-mi-novia.firebaseapp.com",
@@ -21,7 +20,6 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
 const DB_REF = ref(db, "estudio");
 
-// Guarda todos los datos en Firebase de una vez
 function saveData() {
     set(DB_REF, { activities, sessions, goals, pomodoroSettings: pomoSettings })
         .catch(e => console.warn('Error al guardar en Firebase:', e));
@@ -47,6 +45,7 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
         phase: 'work',
         cycle: 0,
         timeLeft: 0,
+        endTime: null,
         interval: null,
         totalSeconds: 0
     };
@@ -93,8 +92,10 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
     function formatDuration(seconds) {
         const h = Math.floor(seconds / 3600);
         const m = Math.floor((seconds % 3600) / 60);
+        const s = seconds % 60;
         if (h > 0) return `${h}h ${m}m`;
-        return `${m}m`;
+        if (m > 0) return `${m}m`;
+        return `${s}s`;
     }
 
     function formatHours(seconds) {
@@ -114,9 +115,15 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
         return getTodaySessions().reduce((sum, s) => sum + s.duration, 0);
     }
 
+    function escapeHtml(str) {
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
     function getActivityName(id) {
         const act = activities.find(a => a.id === id);
-        return act ? act.name : 'Sin actividad';
+        return act ? escapeHtml(act.name) : 'Sin actividad';
     }
 
     function populateActivitySelects() {
@@ -433,19 +440,23 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
     function startPomodoro() {
         pomoState.running = true;
         pomoState.paused = false;
+        pomoState.endTime = Date.now() + pomoState.timeLeft * 1000;
 
         document.getElementById('pomo-start').style.display = 'none';
         document.getElementById('pomo-pause').style.display = 'inline-flex';
         document.getElementById('pomo-stop').style.display = 'inline-flex';
         document.getElementById('pomo-skip').style.display = 'inline-flex';
 
-        pomoState.interval = setInterval(pomoTick, 1000);
+        pomoState.interval = setInterval(pomoTick, 250);
     }
 
     function pausePomodoro() {
         pomoState.running = false;
         pomoState.paused = true;
+        pomoState.timeLeft = Math.max(0, Math.round((pomoState.endTime - Date.now()) / 1000));
+        pomoState.endTime = null;
         clearInterval(pomoState.interval);
+        updatePomoDisplay();
         document.getElementById('pomo-pause').style.display = 'none';
         document.getElementById('pomo-start').style.display = 'inline-flex';
         document.getElementById('pomo-start').innerHTML = '&#9654; Reanudar';
@@ -453,8 +464,29 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
 
     function stopPomodoro() {
         clearInterval(pomoState.interval);
+
+        if (pomoState.phase === 'work') {
+            const elapsed = pomoState.totalSeconds - pomoState.timeLeft;
+            if (elapsed >= 60) {
+                const now = new Date();
+                const session = {
+                    id: generateId(),
+                    activityId: null,
+                    date: getToday(),
+                    startTime: new Date(now - elapsed * 1000).toTimeString().slice(0, 5),
+                    endTime: now.toTimeString().slice(0, 5),
+                    duration: elapsed,
+                    notes: 'Pomodoro parcial'
+                };
+                sessions.push(session);
+                saveData();
+                updateDashboard();
+            }
+        }
+
         pomoState.running = false;
         pomoState.paused = false;
+        pomoState.endTime = null;
 
         document.getElementById('pomo-start').style.display = 'inline-flex';
         document.getElementById('pomo-start').innerHTML = '&#9654; Iniciar Pomodoro';
@@ -469,12 +501,14 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
         clearInterval(pomoState.interval);
         nextPomoPhase();
         if (pomoState.running) {
-            pomoState.interval = setInterval(pomoTick, 1000);
+            pomoState.endTime = Date.now() + pomoState.timeLeft * 1000;
+            pomoState.interval = setInterval(pomoTick, 250);
         }
     }
 
     function pomoTick() {
-        pomoState.timeLeft--;
+        const remaining = Math.round((pomoState.endTime - Date.now()) / 1000);
+        pomoState.timeLeft = Math.max(0, remaining);
         updatePomoDisplay();
 
         if (pomoState.timeLeft <= 0) {
@@ -482,12 +516,28 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
             playNotificationSound();
             showConfetti();
             nextPomoPhase();
-            pomoState.interval = setInterval(pomoTick, 1000);
+            pomoState.endTime = Date.now() + pomoState.timeLeft * 1000;
+            pomoState.interval = setInterval(pomoTick, 250);
         }
     }
 
     function nextPomoPhase() {
         if (pomoState.phase === 'work') {
+            const workDuration = pomoSettings.work * 60;
+            const now = new Date();
+            const session = {
+                id: generateId(),
+                activityId: null,
+                date: getToday(),
+                startTime: new Date(now - workDuration * 1000).toTimeString().slice(0, 5),
+                endTime: now.toTimeString().slice(0, 5),
+                duration: workDuration,
+                notes: 'Pomodoro completado'
+            };
+            sessions.push(session);
+            saveData();
+            updateDashboard();
+
             pomoState.cycle++;
             updatePomoCycles();
 
@@ -1045,9 +1095,6 @@ let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
         calendarState.month = new Date().getMonth();
     }
 
-// ============================================
-// STARTUP — carga desde Firebase antes de iniciar
-// ============================================
 async function startup() {
     try {
         const snapshot = await get(DB_REF);
