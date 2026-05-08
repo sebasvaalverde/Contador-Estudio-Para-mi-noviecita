@@ -1,36 +1,36 @@
 // ============================================
 // CONTADOR DE ESTUDIO - Main Application
 // ============================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import { getDatabase, ref, set, get } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-database.js";
 
-(function() {
-    'use strict';
+'use strict';
 
-    const STORAGE_KEYS = {
-        activities: 'sb_activities',
-        sessions: 'sb_sessions',
-        goals: 'sb_goals',
-        pomodoroSettings: 'sb_pomo_settings'
-    };
+// 🔥 TU CONFIGURACIÓN DE FIREBASE — no la compartas con nadie
+const firebaseConfig = {
+    apiKey: "AIzaSyC4c0aVEANhcKkOl4GAAlI2lqJfvkHiEtk",
+    authDomain: "contador-de-tiempo-mi-novia.firebaseapp.com",
+    databaseURL: "https://contador-de-tiempo-mi-novia-default-rtdb.firebaseio.com",
+    projectId: "contador-de-tiempo-mi-novia",
+    storageBucket: "contador-de-tiempo-mi-novia.firebasestorage.app",
+    messagingSenderId: "1039929246595",
+    appId: "1:1039929246595:web:984d1bb044b4e8e8112cb6"
+};
 
-    function loadData(key) {
-        try {
-            const data = localStorage.getItem(key);
-            return data ? JSON.parse(data) : null;
-        } catch(e) {
-            return null;
-        }
-    }
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
+const DB_REF = ref(db, "estudio");
 
-    function saveData(key, data) {
-        localStorage.setItem(key, JSON.stringify(data));
-    }
+// Guarda todos los datos en Firebase de una vez
+function saveData() {
+    set(DB_REF, { activities, sessions, goals, pomodoroSettings: pomoSettings })
+        .catch(e => console.warn('Error al guardar en Firebase:', e));
+}
 
-    let activities = loadData(STORAGE_KEYS.activities) || [];
-    let sessions = loadData(STORAGE_KEYS.sessions) || [];
-    let goals = loadData(STORAGE_KEYS.goals) || [];
-    let pomoSettings = loadData(STORAGE_KEYS.pomodoroSettings) || {
-        work: 25, short: 5, long: 15, cycles: 4
-    };
+let activities = [];
+let sessions = [];
+let goals = [];
+let pomoSettings = { work: 25, short: 5, long: 15, cycles: 4 };
 
     let timerState = {
         running: false,
@@ -360,7 +360,7 @@
                 notes: notes
             };
             sessions.push(session);
-            saveData(STORAGE_KEYS.sessions, sessions);
+            saveData();
             document.getElementById('session-modal').style.display = 'none';
             showConfetti();
             updateDashboard();
@@ -408,7 +408,7 @@
         };
 
         sessions.push(session);
-        saveData(STORAGE_KEYS.sessions, sessions);
+        saveData();
         showConfetti();
         updateDashboard();
 
@@ -570,7 +570,7 @@
         pomoSettings.short = parseInt(document.getElementById('pomo-short').value) || 5;
         pomoSettings.long = parseInt(document.getElementById('pomo-long').value) || 15;
         pomoSettings.cycles = parseInt(document.getElementById('pomo-cycles').value) || 4;
-        saveData(STORAGE_KEYS.pomodoroSettings, pomoSettings);
+        saveData();
         initPomodoro();
         alert('Configuracion guardada!');
     });
@@ -633,7 +633,7 @@
             createdAt: new Date().toISOString()
         });
 
-        saveData(STORAGE_KEYS.activities, activities);
+        saveData();
         populateActivitySelects();
         renderActivities('all');
         document.getElementById('activity-name').value = '';
@@ -664,7 +664,7 @@
             act.type = document.getElementById('edit-type').value;
             act.priority = document.getElementById('edit-priority').value;
             act.goalHours = parseFloat(document.getElementById('edit-goal-hours').value) || 0;
-            saveData(STORAGE_KEYS.activities, activities);
+            saveData();
             populateActivitySelects();
             renderActivities('all');
             document.getElementById('edit-modal').style.display = 'none';
@@ -678,7 +678,7 @@
     window.deleteActivity = function(id) {
         if (!confirm('Segura que quieres eliminar esta actividad?')) return;
         activities = activities.filter(a => a.id !== id);
-        saveData(STORAGE_KEYS.activities, activities);
+        saveData();
         populateActivitySelects();
         renderActivities('all');
     };
@@ -740,7 +740,7 @@
             createdAt: new Date().toISOString()
         });
 
-        saveData(STORAGE_KEYS.goals, goals);
+        saveData();
         renderGoals();
         document.getElementById('goal-name').value = '';
         showConfetti();
@@ -749,7 +749,7 @@
     window.deleteGoal = function(id) {
         if (!confirm('Eliminar esta meta?')) return;
         goals = goals.filter(g => g.id !== id);
-        saveData(STORAGE_KEYS.goals, goals);
+        saveData();
         renderGoals();
     };
 
@@ -1045,6 +1045,23 @@
         calendarState.month = new Date().getMonth();
     }
 
+// ============================================
+// STARTUP — carga desde Firebase antes de iniciar
+// ============================================
+async function startup() {
+    try {
+        const snapshot = await get(DB_REF);
+        if (snapshot.exists()) {
+            const data = snapshot.val();
+            activities   = data.activities       || [];
+            sessions     = data.sessions         || [];
+            goals        = data.goals            || [];
+            pomoSettings = data.pomodoroSettings || { work: 25, short: 5, long: 15, cycles: 4 };
+        }
+    } catch(e) {
+        console.warn('No se pudo cargar desde Firebase:', e);
+    }
     init();
+}
 
-})();
+startup();
